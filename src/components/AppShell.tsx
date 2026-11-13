@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   Calendar,
   LayoutGrid,
@@ -8,14 +8,24 @@ import {
   Users,
   Settings,
   Compass,
-  Tablet,
-  LogIn,
+  LogOut,
+  UserCircle2,
+  ShieldCheck,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { t } from '@/i18n';
-import { useDoelen } from '@/hooks';
+import { useAuth, useDoelen } from '@/hooks';
+import type { GebruikersRol } from '@/types';
 
-const hoofdNavigatie = [
+interface NavigatieItem {
+  to: string;
+  label: string;
+  icon: typeof Compass;
+  end?: boolean;
+  rollen?: GebruikersRol[];
+}
+
+const hoofdNavigatie: NavigatieItem[] = [
   { to: '/', label: t.navigatie.overzicht, icon: Compass, end: true },
   { to: '/agenda', label: t.navigatie.agenda, icon: Calendar },
   { to: '/keuzebord', label: t.navigatie.keuzebord, icon: LayoutGrid },
@@ -23,11 +33,33 @@ const hoofdNavigatie = [
   { to: '/doelen', label: t.navigatie.doelen, icon: Target },
   { to: '/inzichten', label: t.navigatie.inzichten, icon: BarChart3 },
   { to: '/leerlingen', label: t.navigatie.leerlingen, icon: Users },
-  { to: '/beheer', label: t.navigatie.beheer, icon: Settings },
+  {
+    to: '/beheer',
+    label: t.navigatie.beheer,
+    icon: Settings,
+    rollen: ['schoolbeheerder', 'superbeheerder'],
+  },
+  {
+    to: '/platform',
+    label: t.navigatie.platform,
+    icon: ShieldCheck,
+    rollen: ['superbeheerder'],
+  },
 ];
 
 export function AppShell() {
+  const { gebruiker, uitloggen } = useAuth();
   const { doelen, laden: doelenLaden } = useDoelen();
+  const navigate = useNavigate();
+
+  const zichtbareNavigatie = hoofdNavigatie.filter(
+    (item) => !item.rollen || (gebruiker && item.rollen.includes(gebruiker.rol))
+  );
+
+  async function handleUitloggen() {
+    await uitloggen();
+    navigate('/aanmelden', { replace: true });
+  }
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50">
@@ -41,7 +73,7 @@ export function AppShell() {
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-x-auto flex md:block">
-          {hoofdNavigatie.map((item) => {
+          {zichtbareNavigatie.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -63,22 +95,42 @@ export function AppShell() {
           })}
         </nav>
 
-        <div className="p-3 border-t border-slate-100 space-y-1 text-xs">
+        <div className="p-3 border-t border-slate-100 space-y-2 text-xs">
+          {gebruiker && (
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-100">
+              <div className="font-semibold text-slate-900 truncate">
+                {gebruiker.voornaam} {gebruiker.familienaam}
+              </div>
+              <div className="text-kompas-700 font-medium">
+                {t.rollen[gebruiker.rol]}
+              </div>
+            </div>
+          )}
+
           <NavLink
-            to="/aanmelden"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100"
+            to="/profiel"
+            className={({ isActive }) =>
+              `flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-colors ${
+                isActive
+                  ? 'bg-kompas-50 text-kompas-800'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`
+            }
           >
-            <LogIn className="h-4 w-4" />
-            <span>{t.navigatie.aanmelden}</span>
+            <UserCircle2 className="h-4 w-4" />
+            <span>{t.navigatie.profiel}</span>
           </NavLink>
-          <NavLink
-            to="/toestel"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100"
+
+          <button
+            type="button"
+            onClick={handleUitloggen}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-slate-600 hover:bg-rose-50 hover:text-rose-700 font-medium transition-colors"
           >
-            <Tablet className="h-4 w-4" />
-            <span>{t.navigatie.toestelKoppelen}</span>
-          </NavLink>
-          <div className="px-3 pt-2 text-slate-400">
+            <LogOut className="h-4 w-4" />
+            <span>{t.navigatie.afmelden}</span>
+          </button>
+
+          <div className="px-3 pt-1 text-slate-400">
             {doelenLaden
               ? 'Doelen laden in IndexedDB…'
               : t.status.doelenGeladen(doelen.length)}

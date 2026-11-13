@@ -4,7 +4,6 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
-  // Pas de standaard fallback aan naar jouw GitHub-repositorynaam indien nodig
   base: process.env.VITE_BASE_PATH || '/klaskompas/',
   resolve: {
     alias: {

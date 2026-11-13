@@ -128,7 +128,7 @@ export interface AgendaAanbodItem {
   keuzeactiviteitId: string;
   plaatsen: number;
   lesplanId?: string;
-  voor: 'iedereen' | string[]; // "iedereen" of leerlingIds[]
+  voor: 'iedereen' | string[];
 }
 
 export interface AgendaItem extends SchoolTimestamps {
@@ -159,7 +159,7 @@ export type BordStatus = 'klaar' | 'open' | 'afgesloten';
 export interface Keuzebord extends SchoolTimestamps {
   agendaId: string;
   klasId: string;
-  bezetting: Record<string, string[]>; // [keuzeactiviteitId]: leerlingIds[]
+  bezetting: Record<string, string[]>;
   status: BordStatus;
 }
 

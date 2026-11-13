@@ -66,10 +66,6 @@ async function schrijfNaarIndexedDb(idb: IDBDatabase, doelen: Doel[]): Promise<v
   });
 }
 
-/**
- * Laadt /public/data/doelen.json éénmalig en bewaart alle records lokaal in IndexedDB.
- * Komt niet in Firestore terecht.
- */
 export async function laadDoelenMetCache(): Promise<Doel[]> {
   const idb = await openDoelenDb();
   const gecachet = await leesAlleUitIndexedDb(idb);

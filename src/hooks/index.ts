@@ -1,4 +1,4 @@
-export { useAuth } from './useAuth';
+export { AuthProvider, useAuth } from './useAuth';
 export { useKlassen } from './useKlassen';
 export { useAgenda } from './useAgenda';
 export { useKeuzebord } from './useKeuzebord';

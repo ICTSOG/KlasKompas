@@ -26,8 +26,8 @@ export function agendaItemDoc(schoolId: string, agendaId: string) {
 export function abonneerOpWeekAgenda(
   schoolId: string,
   klasId: string,
-  weekStart: string, // YYYY-MM-DD
-  weekEinde: string, // YYYY-MM-DD
+  weekStart: string,
+  weekEinde: string,
   onData: (items: AgendaItem[]) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {

@@ -1,91 +1,175 @@
 import {
+  EmailAuthProvider,
   onAuthStateChanged,
-  signInAnonymously,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
+  updateEmail,
+  updatePassword,
+  verifyBeforeUpdateEmail,
   type User,
 } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { dbPaths } from './paths';
-import {
-  gebruikerConverter,
-  koppelcodeConverter,
-  toestelConverter,
-} from './db/converters';
-import type { Gebruiker, Toestel } from '@/types';
+import { gebruikerConverter } from './db/converters';
+import type { Gebruiker } from '@/types';
 
-export interface SessieContext {
-  user: User | null;
-  gebruiker: Gebruiker | null;
-  toestel: Toestel | null;
-}
+export const ACCOUNT_NIET_GEACTIVEERD_MELDING =
+  'Je account is nog niet geactiveerd. Neem contact op met je beheerder.';
 
-export async function meldAanMetEmail(email: string, wachtwoord: string) {
-  return signInWithEmailAndPassword(auth, email, wachtwoord);
-}
-
-export async function meldAf() {
-  return signOut(auth);
-}
-
-export async function koppelKlasToestel(
-  code: string,
-  toestelNaam: string
-): Promise<Toestel> {
-  const genormaliseerdeCode = code.trim().toUpperCase();
-  const credential = await signInAnonymously(auth);
-  const uid = credential.user.uid;
-
-  const codeSnap = await getDoc(
-    doc(db, dbPaths.koppelcode(genormaliseerdeCode)).withConverter(koppelcodeConverter)
-  );
-
-  if (!codeSnap.exists()) {
-    throw new Error('Ongeldige of verlopen koppelcode.');
+/**
+ * Vertaalt Firebase Auth- en netwerkfouten naar begrijpelijke Vlaamse/Nederlandse meldingen.
+ */
+export function vertaalAuthFout(fout: unknown): string {
+  if (!fout || typeof fout !== 'object') {
+    return 'Er is een onbekende fout opgetreden. Probeer het opnieuw.';
   }
 
-  const koppelData = codeSnap.data();
-  await setDoc(doc(db, dbPaths.toestel(uid)), {
-    schoolId: koppelData.schoolId,
-    klasId: koppelData.klasId,
-    naam: toestelNaam.trim() || 'Klastoestel',
-    code: genormaliseerdeCode,
-    gekoppeldOp: serverTimestamp(),
-  });
+  const code = 'code' in fout ? String((fout as { code?: unknown }).code) : '';
 
-  const toestelSnap = await getDoc(
-    doc(db, dbPaths.toestel(uid)).withConverter(toestelConverter)
-  );
-  return toestelSnap.data()!;
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Ongeldig e-mailadres of wachtwoord. Controleer je gegevens en probeer opnieuw.';
+    case 'auth/invalid-email':
+      return 'Dit e-mailadres is niet geldig. Controleer de schrijfwijze.';
+    case 'auth/user-disabled':
+      return 'Dit account is uitgeschakeld. Neem contact op met je beheerder.';
+    case 'auth/too-many-requests':
+      return 'Te veel mislukte pogingen na elkaar. Wacht enkele minuten en probeer opnieuw, of vraag een nieuw wachtwoord aan.';
+    case 'auth/network-request-failed':
+      return 'Je toestel lijkt offline of het netwerk is onbereikbaar. Controleer je internetverbinding.';
+    case 'auth/weak-password':
+      return 'Kies een sterker wachtwoord van minstens 8 tekens.';
+    case 'auth/requires-recent-login':
+      return 'Voor je veiligheid moet je eerst je huidige wachtwoord bevestigen.';
+    case 'auth/email-already-in-use':
+      return 'Dit e-mailadres is al in gebruik bij een ander account.';
+    default:
+      if (fout instanceof Error && fout.message) {
+        return fout.message;
+      }
+      return 'Aanmelden is niet gelukt. Probeer het later opnieuw.';
+  }
 }
 
-export function luisterNaarSessie(callback: (ctx: SessieContext) => void) {
-  return onAuthStateChanged(auth, async (user) => {
-    if (!user) {
-      callback({ user: null, gebruiker: null, toestel: null });
-      return;
-    }
+export async function haalGebruikerProfiel(uid: string): Promise<Gebruiker | null> {
+  const snap = await getDoc(
+    doc(db, dbPaths.gebruiker(uid)).withConverter(gebruikerConverter)
+  );
+  if (!snap.exists()) {
+    return null;
+  }
+  const data = snap.data();
+  return {
+    ...data,
+    uid: snap.id,
+    klasIds: Array.isArray(data.klasIds) ? data.klasIds : [],
+  };
+}
 
-    if (user.isAnonymous) {
-      const toestelSnap = await getDoc(
-        doc(db, dbPaths.toestel(user.uid)).withConverter(toestelConverter)
-      );
-      callback({
-        user,
-        gebruiker: null,
-        toestel: toestelSnap.exists() ? toestelSnap.data() : null,
-      });
-      return;
-    }
+export async function meldAanMetEmail(
+  email: string,
+  wachtwoord: string
+): Promise<Gebruiker> {
+  const schoonEmail = email.trim();
+  const credential = await signInWithEmailAndPassword(auth, schoonEmail, wachtwoord);
+  const profiel = await haalGebruikerProfiel(credential.user.uid);
 
-    const gebruikerSnap = await getDoc(
-      doc(db, dbPaths.gebruiker(user.uid)).withConverter(gebruikerConverter)
-    );
-    callback({
-      user,
-      gebruiker: gebruikerSnap.exists() ? gebruikerSnap.data() : null,
-      toestel: null,
-    });
+  if (!profiel || profiel.status !== 'actief') {
+    await signOut(auth);
+    throw new Error(ACCOUNT_NIET_GEACTIVEERD_MELDING);
+  }
+
+  return profiel;
+}
+
+export async function meldAf(): Promise<void> {
+  await signOut(auth);
+}
+
+export async function verstuurWachtwoordReset(email: string): Promise<void> {
+  const schoonEmail = email.trim();
+  if (!schoonEmail) {
+    throw new Error('Vul eerst je e-mailadres in.');
+  }
+  await sendPasswordResetEmail(auth, schoonEmail);
+}
+
+export function luisterNaarAuthStatus(callback: (user: User | null) => void) {
+  return onAuthStateChanged(auth, callback);
+}
+
+export async function werkEigenNaamBij(
+  uid: string,
+  gegevens: { voornaam: string; familienaam: string }
+): Promise<void> {
+  const voornaam = gegevens.voornaam.trim();
+  const familienaam = gegevens.familienaam.trim();
+
+  if (!voornaam || !familienaam) {
+    throw new Error('Voornaam en familienaam zijn verplicht.');
+  }
+
+  await updateDoc(doc(db, dbPaths.gebruiker(uid)), {
+    voornaam,
+    familienaam,
   });
+}
+
+export async function werkEigenEmailBij(
+  nieuwEmail: string,
+  huidigWachtwoord: string
+): Promise<{ verificatieVerzonden: boolean }> {
+  const user = auth.currentUser;
+  if (!user || !user.email) {
+    throw new Error('Je bent niet aangemeld.');
+  }
+
+  const schoonEmail = nieuwEmail.trim();
+  if (!schoonEmail) {
+    throw new Error('Vul een geldig nieuw e-mailadres in.');
+  }
+
+  const cred = EmailAuthProvider.credential(user.email, huidigWachtwoord);
+  await reauthenticateWithCredential(user, cred);
+
+  try {
+    await updateEmail(user, schoonEmail);
+    await updateDoc(doc(db, dbPaths.gebruiker(user.uid)), {
+      email: schoonEmail,
+    });
+    return { verificatieVerzonden: false };
+  } catch (err: unknown) {
+    const code =
+      err && typeof err === 'object' && 'code' in err
+        ? String((err as { code?: unknown }).code)
+        : '';
+    if (code === 'auth/operation-not-allowed') {
+      await verifyBeforeUpdateEmail(user, schoonEmail);
+      return { verificatieVerzonden: true };
+    }
+    throw err;
+  }
+}
+
+export async function wijzigEigenWachtwoord(
+  huidigWachtwoord: string,
+  nieuwWachtwoord: string
+): Promise<void> {
+  const user = auth.currentUser;
+  if (!user || !user.email) {
+    throw new Error('Je bent niet aangemeld.');
+  }
+
+  if (nieuwWachtwoord.length < 8) {
+    throw new Error('Kies een nieuw wachtwoord van minstens 8 tekens.');
+  }
+
+  const cred = EmailAuthProvider.credential(user.email, huidigWachtwoord);
+  await reauthenticateWithCredential(user, cred);
+  await updatePassword(user, nieuwWachtwoord);
 }

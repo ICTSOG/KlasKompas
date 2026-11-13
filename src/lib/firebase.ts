@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { browserLocalPersistence, getAuth, setPersistence } from 'firebase/auth';
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -17,6 +17,12 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+auth.languageCode = 'nl';
+
+// Sessie blijft bewaard tussen browser-sessies
+setPersistence(auth, browserLocalPersistence).catch(() => {
+  // Fallback naar standaard sessie-persistentie indien browseropslag beperkt is
+});
 
 // Offline-vriendelijke Firestore met persistente IndexedDB-cache over meerdere tabbladen
 export const db = initializeFirestore(app, {
