@@ -1,0 +1,281 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Hulpfuncties ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function gebruikerPath() {
+      return /databases/$(database)/documents/gebruikers/$(request.auth.uid);
+    }
+
+    function heeftGebruikerProfiel() {
+      return isSignedIn() && exists(gebruikerPath());
+    }
+
+    function gebruiker() {
+      return get(gebruikerPath()).data;
+    }
+
+    function isActieveGebruiker() {
+      return heeftGebruikerProfiel() && gebruiker().status == 'actief';
+    }
+
+    function isSuperbeheerder() {
+      return isActieveGebruiker() && gebruiker().rol == 'superbeheerder';
+    }
+
+    function isSchoolbeheerder(schoolId) {
+      return isActieveGebruiker()
+        && gebruiker().schoolId == schoolId
+        && gebruiker().rol == 'schoolbeheerder';
+    }
+
+    function hoortBijSchool(schoolId) {
+      return isSuperbeheerder()
+        || (isActieveGebruiker() && gebruiker().schoolId == schoolId);
+    }
+
+    function toestelPath() {
+      return /databases/$(database)/documents/toestellen/$(request.auth.uid);
+    }
+
+    function isToestelVoorSchool(schoolId) {
+      return isSignedIn()
+        && exists(toestelPath())
+        && get(toestelPath()).data.schoolId == schoolId;
+    }
+
+    function toestelKlasId() {
+      return get(toestelPath()).data.klasId;
+    }
+
+    function heeftSchoolTimestamps() {
+      return request.resource.data.keys().hasAll(['aangemaaktOp', 'gewijzigdOp']);
+    }
+
+    function behoudtAangemaaktOp() {
+      return request.resource.data.aangemaaktOp == resource.data.aangemaaktOp
+        && request.resource.data.keys().hasAll(['gewijzigdOp']);
+    }
+
+    // --- Top-level collecties ---
+
+    match /platform/instellingen {
+      allow read: if isSignedIn();
+      allow write: if isSuperbeheerder();
+    }
+
+    match /gebruikers/{uid} {
+      allow read: if isSuperbeheerder()
+        || (isSignedIn() && request.auth.uid == uid)
+        || (isActieveGebruiker()
+            && resource.data.schoolId == gebruiker().schoolId
+            && gebruiker().rol == 'schoolbeheerder');
+
+      allow create: if isSuperbeheerder()
+        || (isActieveGebruiker()
+            && gebruiker().rol == 'schoolbeheerder'
+            && request.resource.data.schoolId == gebruiker().schoolId
+            && request.resource.data.rol in ['schoolbeheerder', 'leerkracht']);
+
+      allow update: if isSuperbeheerder()
+        || (isActieveGebruiker()
+            && gebruiker().rol == 'schoolbeheerder'
+            && resource.data.schoolId == gebruiker().schoolId
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.rol in ['schoolbeheerder', 'leerkracht'])
+        || (isActieveGebruiker()
+            && request.auth.uid == uid
+            && request.resource.data.rol == resource.data.rol
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.status == resource.data.status);
+
+      allow delete: if isSuperbeheerder();
+    }
+
+    match /scholen/{schoolId} {
+      allow read: if hoortBijSchool(schoolId) || isToestelVoorSchool(schoolId);
+      allow create, delete: if isSuperbeheerder();
+      allow update: if isSuperbeheerder() || isSchoolbeheerder(schoolId);
+
+      // --- Subcollecties onder scholen/{schoolId} ---
+
+      match /klassen/{klasId} {
+        allow read: if hoortBijSchool(schoolId)
+          || (isToestelVoorSchool(schoolId) && toestelKlasId() == klasId);
+        allow create: if (isSuperbeheerder() || isSchoolbeheerder(schoolId)) && heeftSchoolTimestamps();
+        allow update: if (isSuperbeheerder() || isSchoolbeheerder(schoolId)) && behoudtAangemaaktOp();
+        allow delete: if isSuperbeheerder() || isSchoolbeheerder(schoolId);
+      }
+
+      // Volledige leerlinggegevens: NOOIT leesbaar voor toestellen
+      match /leerlingen/{leerlingId} {
+        allow read: if hoortBijSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      // Afgeleide bord-kaartjes: wél leesbaar voor gekoppelde toestellen van die klas
+      match /leerlingBord/{leerlingId} {
+        allow read: if hoortBijSchool(schoolId)
+          || (isToestelVoorSchool(schoolId) && resource.data.klasId == toestelKlasId());
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /iconBibliotheken/{bibId} {
+        allow read: if hoortBijSchool(schoolId) || isToestelVoorSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+
+        match /iconen/{iconId} {
+          allow read: if hoortBijSchool(schoolId) || isToestelVoorSchool(schoolId);
+          allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+          allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+          allow delete: if hoortBijSchool(schoolId);
+        }
+      }
+
+      match /keuzeactiviteiten/{activiteitId} {
+        allow read: if hoortBijSchool(schoolId)
+          || (isToestelVoorSchool(schoolId) && resource.data.klasId == toestelKlasId());
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /agenda/{agendaId} {
+        allow read: if hoortBijSchool(schoolId)
+          || (isToestelVoorSchool(schoolId) && resource.data.klasId == toestelKlasId());
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /weekthemas/{themaId} {
+        allow read: if hoortBijSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId)
+          && heeftSchoolTimestamps()
+          && request.resource.data.naam.size() <= 80;
+        allow update: if hoortBijSchool(schoolId)
+          && behoudtAangemaaktOp()
+          && request.resource.data.naam.size() <= 80;
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /borden/{agendaId} {
+        allow read: if hoortBijSchool(schoolId)
+          || (isToestelVoorSchool(schoolId) && resource.data.klasId == toestelKlasId());
+        allow create: if (hoortBijSchool(schoolId)
+            || (isToestelVoorSchool(schoolId) && request.resource.data.klasId == toestelKlasId()))
+          && heeftSchoolTimestamps();
+        allow update: if (hoortBijSchool(schoolId)
+            || (isToestelVoorSchool(schoolId) && resource.data.klasId == toestelKlasId()))
+          && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /sessies/{sessieId} {
+        allow read: if hoortBijSchool(schoolId)
+          || (isToestelVoorSchool(schoolId) && resource.data.klasId == toestelKlasId());
+        allow create: if (hoortBijSchool(schoolId)
+            || (isToestelVoorSchool(schoolId) && request.resource.data.klasId == toestelKlasId()))
+          && heeftSchoolTimestamps();
+        allow update: if (hoortBijSchool(schoolId)
+            || (isToestelVoorSchool(schoolId) && resource.data.klasId == toestelKlasId()))
+          && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /observaties/{observatieId} {
+        allow read: if hoortBijSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /evaluaties/{evaluatieId} {
+        allow read: if hoortBijSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /doelencollecties/{collectieId} {
+        allow read: if hoortBijSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /eigenDoelen/{doelId} {
+        allow read: if hoortBijSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /lesplannen/{lesplanId} {
+        allow read: if hoortBijSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /lesplanCollecties/{collectieId} {
+        allow read: if hoortBijSchool(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /media/{mediaId} {
+        allow read: if hoortBijSchool(schoolId)
+          || (isToestelVoorSchool(schoolId)
+              && resource.data.soort == 'profiel'
+              && resource.data.klasId == toestelKlasId());
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update: if hoortBijSchool(schoolId) && behoudtAangemaaktOp();
+        allow delete: if hoortBijSchool(schoolId);
+      }
+
+      match /audit/{auditId} {
+        allow read: if isSuperbeheerder() || isSchoolbeheerder(schoolId);
+        allow create: if hoortBijSchool(schoolId) && heeftSchoolTimestamps();
+        allow update, delete: if false;
+      }
+    }
+
+    match /koppelcodes/{code} {
+      // Enkel directe get op exacte code voor koppeling of leesrechten voor schoolpersoneel
+      allow get: if isSignedIn();
+      allow list: if isActieveGebruiker() && resource.data.schoolId == gebruiker().schoolId;
+      allow create, update: if isActieveGebruiker()
+        && request.resource.data.schoolId == gebruiker().schoolId;
+      allow delete: if isActieveGebruiker()
+        && resource.data.schoolId == gebruiker().schoolId;
+    }
+
+    match /toestellen/{uid} {
+      allow read: if (isSignedIn() && request.auth.uid == uid)
+        || (isActieveGebruiker() && resource.data.schoolId == gebruiker().schoolId);
+
+      // Toestel koppelt zichzelf met een geldige koppelcode
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && exists(/databases/$(database)/documents/koppelcodes/$(request.resource.data.code))
+        && get(/databases/$(database)/documents/koppelcodes/$(request.resource.data.code)).data.schoolId == request.resource.data.schoolId
+        && get(/databases/$(database)/documents/koppelcodes/$(request.resource.data.code)).data.klasId == request.resource.data.klasId
+        && get(/databases/$(database)/documents/koppelcodes/$(request.resource.data.code)).data.geldigTot > request.time;
+
+      allow delete: if (isSignedIn() && request.auth.uid == uid)
+        || (isActieveGebruiker() && resource.data.schoolId == gebruiker().schoolId);
+    }
+  }
+}

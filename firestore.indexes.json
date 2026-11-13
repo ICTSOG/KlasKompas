@@ -1,0 +1,40 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "agenda",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "klasId", "order": "ASCENDING" },
+        { "fieldPath": "datum", "order": "ASCENDING" },
+        { "fieldPath": "start", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sessies",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "klasId", "order": "ASCENDING" },
+        { "fieldPath": "agendaId", "order": "ASCENDING" },
+        { "fieldPath": "start", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "observaties",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "klasId", "order": "ASCENDING" },
+        { "fieldPath": "datum", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "evaluaties",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "klasId", "order": "ASCENDING" },
+        { "fieldPath": "leerlingId", "order": "ASCENDING" },
+        { "fieldPath": "datum", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
