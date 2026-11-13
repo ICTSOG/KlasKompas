@@ -1,20 +1,23 @@
 rules_version = '2';
+
+// KlasKompas Firestore Security Rules — Fase 2
+// Bevat regels voor auth/gebruikers/scholen + klassen, leerlingen, leerlingBord, media & iconBibliotheken.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Helperfuncties (v1) ---
+    // --- Helperfuncties ---
 
     function signedIn() {
       return request.auth != null;
     }
 
-    function me() {
-      return get(/databases/$(database)/documents/gebruikers/$(request.auth.uid)).data;
-    }
-
     function meExists() {
       return signedIn()
         && exists(/databases/$(database)/documents/gebruikers/$(request.auth.uid));
+    }
+
+    function me() {
+      return get(/databases/$(database)/documents/gebruikers/$(request.auth.uid)).data;
     }
 
     function actief() {
@@ -38,52 +41,190 @@ service cloud.firestore {
         && klasId in me().klasIds;
     }
 
+    function belongsToSchool(schoolId) {
+      return actief() && me().schoolId == schoolId;
+    }
+
+    function heeftTimestamps() {
+      return request.resource.data.keys().hasAll(['aangemaaktOp', 'gewijzigdOp']);
+    }
+
+    function behoudtAangemaaktOp() {
+      return request.resource.data.aangemaaktOp == resource.data.aangemaaktOp;
+    }
+
+    // --- Platform-instellingen ---
+
+    match /platform/{docId} {
+      allow read: if actief();
+      allow write: if isSuper();
+    }
+
     // --- Gebruikers ---
-    // - Iedereen leest zijn eigen document (nodig om status/rol te controleren bij login)
-    // - Schoolbeheerder leest en beheert gebruikers van zijn school, maar kan nooit rol "superbeheerder" geven
-    // - Niemand kan zijn eigen rol, schoolId of status wijzigen
-    // - Superbeheerder kan alles
+
     match /gebruikers/{uid} {
       allow read: if isSuper()
         || (signedIn() && request.auth.uid == uid)
-        || isSchoolAdmin(resource.data.schoolId);
+        || (actief() && me().rol == 'schoolbeheerder' && resource.data.schoolId == me().schoolId);
 
+      // Schoolbeheerder mag nieuwe leerkrachten of schoolbeheerders in zijn eigen school aanmaken
       allow create: if isSuper()
-        || (isSchoolAdmin(request.resource.data.schoolId)
-            && request.resource.data.rol in ['schoolbeheerder', 'leerkracht']);
-
-      allow update: if isSuper()
-        || (isSchoolAdmin(resource.data.schoolId)
-            && request.auth.uid != uid
-            && resource.data.rol != 'superbeheerder'
-            && request.resource.data.schoolId == resource.data.schoolId
-            && request.resource.data.rol in ['schoolbeheerder', 'leerkracht'])
         || (actief()
-            && request.auth.uid == uid
-            && request.resource.data.rol == resource.data.rol
-            && request.resource.data.schoolId == resource.data.schoolId
-            && request.resource.data.status == resource.data.status
-            && request.resource.data.klasIds == resource.data.klasIds);
+          && me().rol == 'schoolbeheerder'
+          && request.resource.data.schoolId == me().schoolId
+          && request.resource.data.rol in ['schoolbeheerder', 'leerkracht']
+          && request.resource.data.status in ['actief', 'inactief']);
 
-      allow delete: if isSuper()
-        || (isSchoolAdmin(resource.data.schoolId)
-            && request.auth.uid != uid
-            && resource.data.rol != 'superbeheerder');
+      // Eigen profiel: enkel voornaam, familienaam en email aanpasbaar
+      // Schoolbeheerder: collega's in zijn school beheren (geen superbeheerder, niet eigen rol/status)
+      allow update: if isSuper()
+        || (actief()
+          && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['voornaam', 'familienaam', 'email'])
+          && request.resource.data.rol == resource.data.rol
+          && request.resource.data.schoolId == resource.data.schoolId
+          && request.resource.data.status == resource.data.status)
+        || (actief()
+          && me().rol == 'schoolbeheerder'
+          && uid != request.auth.uid
+          && resource.data.schoolId == me().schoolId
+          && resource.data.rol != 'superbeheerder'
+          && request.resource.data.schoolId == me().schoolId
+          && request.resource.data.rol in ['schoolbeheerder', 'leerkracht']
+          && request.resource.data.status in ['actief', 'inactief']);
+
+      allow delete: if isSuper();
     }
 
-    // --- Scholen & subcollecties ---
-    // Standaard geweigerd in v1; voeg per collectie regels toe in de volgende fasen.
-    // Alles is strikt gescheiden per schoolId.
-    match /scholen/{schoolId} {
-      allow read, write: if false;
+    // --- Scholen en subcollecties ---
 
-      match /{document=**} {
+    match /scholen/{schoolId} {
+      allow read: if isSuper() || belongsToSchool(schoolId);
+      allow create, delete: if isSuper();
+      allow update: if isSuper() || isSchoolAdmin(schoolId);
+
+      // Klassen
+      match /klassen/{klasId} {
+        allow read: if isSuper()
+          || isSchoolAdmin(schoolId)
+          || isTeacherOf(schoolId, klasId);
+
+        allow create: if (isSuper() || isSchoolAdmin(schoolId))
+          && heeftTimestamps()
+          && request.resource.data.naam is string
+          && request.resource.data.naam.size() > 0;
+
+        allow update: if (isSuper() || isSchoolAdmin(schoolId))
+          && behoudtAangemaaktOp()
+          && request.resource.data.naam is string
+          && request.resource.data.naam.size() > 0;
+
+        allow delete: if isSuper() || isSchoolAdmin(schoolId);
+      }
+
+      // Leerlingen (volledige gegevens, strikt per klas voor leerkracht)
+      match /leerlingen/{leerlingId} {
+        allow read: if isSuper()
+          || isSchoolAdmin(schoolId)
+          || isTeacherOf(schoolId, resource.data.klasId);
+
+        allow create: if (isSuper()
+            || isSchoolAdmin(schoolId)
+            || isTeacherOf(schoolId, request.resource.data.klasId))
+          && heeftTimestamps()
+          && request.resource.data.voornaam is string
+          && request.resource.data.familienaam is string
+          && request.resource.data.geboortedatum is string
+          && request.resource.data.klasId is string;
+
+        allow update: if (isSuper()
+            || isSchoolAdmin(schoolId)
+            || (isTeacherOf(schoolId, resource.data.klasId)
+                && isTeacherOf(schoolId, request.resource.data.klasId)))
+          && behoudtAangemaaktOp()
+          && request.resource.data.voornaam is string
+          && request.resource.data.familienaam is string
+          && request.resource.data.geboortedatum is string
+          && request.resource.data.klasId is string;
+
+        allow delete: if isSuper()
+          || isSchoolAdmin(schoolId)
+          || isTeacherOf(schoolId, resource.data.klasId);
+      }
+
+      // LeerlingBord (beperkt zicht voor keuzebord: nooit familienaam of geboortedatum)
+      match /leerlingBord/{leerlingId} {
+        allow read: if isSuper()
+          || isSchoolAdmin(schoolId)
+          || isTeacherOf(schoolId, resource.data.klasId);
+
+        allow create: if (isSuper()
+            || isSchoolAdmin(schoolId)
+            || isTeacherOf(schoolId, request.resource.data.klasId))
+          && heeftTimestamps()
+          && request.resource.data.voornaam is string
+          && request.resource.data.klasId is string
+          && !request.resource.data.keys().hasAny(['familienaam', 'geboortedatum']);
+
+        allow update: if (isSuper()
+            || isSchoolAdmin(schoolId)
+            || (isTeacherOf(schoolId, resource.data.klasId)
+                && isTeacherOf(schoolId, request.resource.data.klasId)))
+          && request.resource.data.voornaam is string
+          && request.resource.data.klasId is string
+          && !request.resource.data.keys().hasAny(['familienaam', 'geboortedatum']);
+
+        allow delete: if isSuper()
+          || isSchoolAdmin(schoolId)
+          || isTeacherOf(schoolId, resource.data.klasId);
+      }
+
+      // Media (profielfoto's en observatiefoto's)
+      match /media/{mediaId} {
+        allow read: if isSuper()
+          || isSchoolAdmin(schoolId)
+          || isTeacherOf(schoolId, resource.data.klasId);
+
+        allow create: if (isSuper()
+            || isSchoolAdmin(schoolId)
+            || isTeacherOf(schoolId, request.resource.data.klasId))
+          && heeftTimestamps();
+
+        allow update: if (isSuper()
+            || isSchoolAdmin(schoolId)
+            || isTeacherOf(schoolId, resource.data.klasId))
+          && behoudtAangemaaktOp();
+
+        allow delete: if isSuper()
+          || isSchoolAdmin(schoolId)
+          || isTeacherOf(schoolId, resource.data.klasId);
+      }
+
+      // Iconenbibliotheken
+      match /iconBibliotheken/{bibId} {
+        allow read: if isSuper() || belongsToSchool(schoolId);
+        allow write: if isSuper() || isSchoolAdmin(schoolId);
+
+        match /iconen/{iconId} {
+          allow read: if isSuper() || belongsToSchool(schoolId);
+          allow write: if isSuper() || isSchoolAdmin(schoolId);
+        }
+      }
+
+      // Overige subcollecties worden in hun eigen fase vrijgegeven
+      match /{subcollectie}/{docId} {
         allow read, write: if false;
       }
     }
 
-    // --- Overige paden standaard weigeren ---
-    match /{document=**} {
+    // --- Koppelcodes & toestellen ---
+
+    match /koppelcodes/{code} {
+      allow read, write: if false;
+    }
+
+    match /toestellen/{uid} {
       allow read, write: if false;
     }
   }

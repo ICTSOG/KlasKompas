@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --color-kompas-50: #f0fdfa;
+  --color-kompas-100: #ccfbf1;
+  --color-kompas-500: #14b8a6;
+  --color-kompas-600: #0d9488;
+  --color-kompas-700: #0f766e;
+  --color-kompas-800: #115e59;
+  --color-kompas-900: #134e4a;
+}
+
+/* CSS-variabelen voor themakleuren (worden in fase 3 instelbaar gemaakt) */
+:root {
+  --kleur-primair: #0f766e;
+  --kleur-primair-licht: #f0fdfa;
+  --kleur-primair-tekst: #ffffff;
+  --kleur-accent: #facc15;
+  --kleur-accent-tekst: #1e293b;
+  --kleur-zijbalk: #f1f5f9;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f8fafc;
+  color: #0f172a;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}

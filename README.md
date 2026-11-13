@@ -1,77 +1,37 @@
-# KlasKompas
+# KlasKompas — Fase 2: App-shell en beheerschermen
 
-Webapplicatie voor leerkrachten kleuter- en basisonderwijs in Vlaanderen: weekplanning (agenda), digitaal keuzebord, observaties, leerlijn- en minimumdoelen en inzichten.
+Webapplicatie voor kleuter- en lager onderwijs in Vlaanderen (React 19 + TypeScript + Vite + Tailwind CSS v4 + Firebase).
 
----
+## Wat zit in Fase 2?
 
-## Architectuur in het kort
+1. **Volledige App-shell & Layout**
+   - Inklapbare lichtgrijze zijbalk met logo bovenaan, **Lesplanbibliotheek**, sectie **SCHOOL** (`Gebruikers`, `Klassen`, `Leerlingen`, `Iconen bibliotheek`, `Jaardoelen`, `Instellingen`), sectie **KLAS** met actieve **klas-selector** (`Leerlingen`, `Keuze-activiteiten`, `Agenda`, `Doelen & evaluaties`, `Observaties`, `Inzichten`, `Iconen bibliotheek`, `Keuze- & Reflectiebord`) en versienummer onderaan.
+   - Topbalk met dynamische paginatitel, help-popover, meldingenbelletje met rode badge, gebruikersmenu (`Mijn profiel`, `Uitloggen`) en voor de **superbeheerder** een **schoolkiezer** (inclusief mogelijkheid om een nieuwe school aan te maken).
+   - Thema-kleuren via CSS-variabelen (`--kleur-primair`, `--kleur-accent`, `--kleur-zijbalk`, ...) in `src/index.css`, gele ronde `+`-FAB rechtsonder, groene status-badges en potlood-in-grijze-cirkel bewerkknoppen.
+2. **Gebruikersbeheer (`/school/gebruikers`)**
+   - Realtime tabel met initialen-avatar, naam, e-mail, rol, klassen en status-badge.
+   - Nieuwe gebruiker aanmaken via een **tweede, tijdelijke Firebase-app-instantie** met cryptografisch willekeurig wachtwoord + automatische wachtwoord-resetmail, zonder dat de beheerder uitgelogd raakt.
+   - Bewerken van naam, rol, toegewezen klassen, status (`actief`/`inactief`), opnieuw reset-mail versturen en "verwijderen" door op `inactief` te zetten.
+3. **Klassenbeheer (`/school/klassen`)**
+   - Realtime overzicht met klasnaam, gekoppelde leerkracht(en), groene badge met aantal leerlingen en bewerken/aanmaken/verwijderen (inclusief bidirectionele synchronisatie tussen `klassen.leerkrachtIds` en `gebruikers.klasIds`).
+4. **Leerlingenbeheer (`/school/leerlingen` & `/klas/leerlingen`)**
+   - Filters op voornaam, familienaam, geboortedatum en klas + sorteerbare tabel.
+   - Acties per rij: observaties (`Eye`), doelen (`Pin`) en bewerken.
+   - Keuze uit ingebouwde kleuter/lager-iconen of eigen profielfoto upload (automatisch verkleind en opgeslagen in `scholen/{schoolId}/media`).
+   - CSV-import (`voornaam,familienaam,geboortedatum,klas`, ondersteunt `,` en `;`, met live voorvertoning).
+   - Elke mutatie houdt `scholen/{schoolId}/leerlingBord/{id}` atomisch synchroon zonder gevoelige persoonsgegevens.
+5. **Firestore Security Rules & Emulator Tests**
+   - Bijgewerkte `firestore.rules` en automatische test-suite in `tests/firestore.rules.test.mjs`.
 
-- **Frontend:** React 18, TypeScript, Vite, Tailwind CSS en React Router (`HashRouter` voor compatibiliteit met GitHub Pages).
-- **Backend:** Firebase Authentication en Cloud Firestore met persistente lokale cache (`persistentLocalCache`) en realtime listeners (`onSnapshot`). Geen eigen backendserver of Cloud Functions; alle toegangscontrole zit in `firestore.rules`.
-- **Doelen:** `/public/data/doelen.json` (5.037 doelen) wordt éénmalig opgehaald en opgeslagen in IndexedDB (komt niet in Firestore).
+## Lokaal starten & rules testen
 
----
-
-## 1. Firebase-project aanmaken en instellen
-
-1. Ga naar de [Firebase Console](https://console.firebase.google.com/) en klik op **Project toevoegen** (bijv. `klaskompas`).
-2. **Firestore Database aanmaken:**
-   - Ga naar **Build > Firestore Database** en klik op **Database maken**.
-   - **Belangrijk:** Kies een **EU-locatie** (bijv. `europe-west1` in België of `europe-west3` in Frankfurt). **Deze regio kan achteraf nooit meer gewijzigd worden.**
-   - Start in productiemodus en plak de inhoud van `firestore.rules` onder het tabblad **Rules** (klik daarna op **Publiceren**).
-3. **Authentication instellen:**
-   - Ga naar **Build > Authentication > Aan de slag**.
-   - Schakel onder **Sign-in method** de provider **E-mailadres/wachtwoord** in.
-   - Voeg onder **Authentication > Settings > Authorized domains** jouw GitHub Pages-domein toe (`<jouw-github-gebruikersnaam>.github.io`).
-4. **Webapp registreren:**
-   - Ga naar **Projectinstellingen (tandwiel) > Algemeen > Jouw apps** en registreer een **Webapp (`</>`)**.
-   - Noteer de zes `firebaseConfig`-waarden (`apiKey`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`).
-
----
-
-## 2. Eerste superbeheerder aanmaken
-
-Omdat KlasKompas geen zelfregistratie toelaat, maak je het eerste beheerdersaccount rechtstreeks aan in de Firebase Console:
-
-1. **Gebruiker aanmaken in Authentication:**
-   - Ga naar **Build > Authentication > Users** en klik op **Gebruiker toevoegen** (*Add user*).
-   - Vul een e-mailadres en wachtwoord in en klik op **Gebruiker toevoegen**.
-   - Kopieer de **Gebruikers-UID** (*User UID*) uit de tabel (bijv. `abc123XYZ...`).
-2. **Gebruikersdocument toevoegen in Firestore:**
-   - Ga naar **Build > Firestore Database > Gegevens** (*Data*).
-   - Klik op **Collectie starten** (*Start collection*) met collectie-ID: `gebruikers`.
-   - Vul als **Document-ID** exact de gekopieerde **Gebruikers-UID** in.
-   - Voeg onderstaande velden toe:
-     - `email` *(string)*: hetzelfde e-mailadres als in Authentication
-     - `voornaam` *(string)*: jouw voornaam
-     - `familienaam` *(string)*: jouw familienaam
-     - `rol` *(string)*: `superbeheerder`
-     - `schoolId` *(string)*: `""` (leeg tekstveld, of een eerste school-ID)
-     - `klasIds` *(array)*: lege array `[]`
-     - `status` *(string)*: `actief`
-   - Klik op **Opslaan**.
-3. Meld je nu aan in KlasKompas met dit e-mailadres en wachtwoord. Je hebt meteen toegang tot alle onderdelen en **Mijn profiel**.
-
----
-
-## 3. Doelenbestand plaatsen
-
-Kopieer het volledige bestand met de 5.037 leerlijn- en minimumdoelen naar:
-
-```text
-public/data/doelen.json
+```bash
+npm install
+npm run dev
 ```
 
----
+Firestore Security Rules testen met de Firebase Emulator:
 
-## 4. GitHub Pages & Repository Variables configureren
-
-1. Open jouw repository op GitHub en ga naar **Settings > Pages**.
-2. Zet **Source** op **GitHub Actions**.
-3. Ga naar **Settings > Secrets and variables > Actions** > tabblad **Variables** en voeg deze zes variabelen toe:
-   - `VITE_FIREBASE_API_KEY`
-   - `VITE_FIREBASE_AUTH_DOMAIN`
-   - `VITE_FIREBASE_PROJECT_ID`
-   - `VITE_FIREBASE_STORAGE_BUCKET`
-   - `VITE_FIREBASE_MESSAGING_SENDER_ID`
-   - `VITE_FIREBASE_APP_ID`
+```bash
+npm run test:rules
+```

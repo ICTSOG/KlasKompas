@@ -1,0 +1,42 @@
+[
+  {
+    "id": "zill-ow-na-1.1",
+    "code": "OWna1.1",
+    "type": "leerlijndoel",
+    "leergebied": "Oriëntatie op de wereld",
+    "thema": "Natuur",
+    "leerlijn": "Levende en niet-levende natuur",
+    "ookInLeerlijnen": [],
+    "fase": "Kleuter",
+    "leeftijd": "2,5 - 6 jaar",
+    "tekst": "Zintuiglijk verkennen en benoemen van opvallende kenmerken van levende wezens en materialen in de directe omgeving.",
+    "samenhang": "SErv1",
+    "ondersteuning": "Gebruik concreet tastmateriaal uit de klasomgeving.",
+    "verdieping": "Laat kleuters gelijkenissen en verschillen sorteren.",
+    "oudeCode": null,
+    "isNieuw": false,
+    "concordantieMD": ["MD-01.02"],
+    "leerjaarMD": "Kleuteronderwijs",
+    "bron": "ZILL"
+  },
+  {
+    "id": "md-nl-lu-01",
+    "code": "MD-NL-LU-01",
+    "type": "minimumdoel",
+    "leergebied": "Nederlands",
+    "thema": "Luisteren",
+    "leerlijn": "Informatie verwerken uit gesproken teksten",
+    "ookInLeerlijnen": ["MD-NL-SP-02"],
+    "fase": "Lager - 1e graad",
+    "leeftijd": "6 - 8 jaar",
+    "tekst": "De leerlingen achterhalen de hoofdgedachte en expliciete informatie in eenvoudige, voor hen bestemde gesproken boodschappen.",
+    "samenhang": null,
+    "ondersteuning": "Ondersteun de boodschap met visuele pictogrammen.",
+    "verdieping": "Laat leerlingen de boodschap in eigen woorden navertellen.",
+    "oudeCode": "ET-NL-1.1",
+    "isNieuw": true,
+    "concordantieMD": [],
+    "leerjaarMD": "1e en 2e leerjaar",
+    "bron": "Vlaamse Overheid — Minimumdoelen Basisonderwijs"
+  }
+]
